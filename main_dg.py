@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import time
+import json
 from module.ExifData import *
 from module.EoData import *
 from module.Boundary import boundary
@@ -17,6 +18,9 @@ sensor_width = 6.3  # unit: mm, Mavic
 # sensor_width = 17.3  # unit: mm, Inspire
 epsg = 5186     # editable
 gsd = 0.1   # unit: m, set 0 to compute automatically
+
+with open("config.json", "r") as file:
+    config = json.load(file)
 
 if __name__ == '__main__':
     for root, dirs, files in os.walk(input_folder):
@@ -35,7 +39,7 @@ if __name__ == '__main__':
                 image = cv2.imread(file_path, -1)
 
                 # 1. Extract metadata from a image
-                focal_length, orientation, eo, maker = get_metadata(file_path)  # unit: m, _, ndarray
+                focal_length, orientation, eo, maker, opk = get_metadata(file_path, config['camera'])  # unit: m, _, ndarray
 
                 # 2. Restore the image based on orientation information
                 restored_image = restoreOrientation(image, orientation)
@@ -47,7 +51,7 @@ if __name__ == '__main__':
                 pixel_size = pixel_size / 1000  # unit: m/px
 
                 eo = geographic2plane(eo, epsg)
-                opk = rpy_to_opk(eo[3:], maker)
+                # opk = rpy_to_opk(eo[3:], maker)
                 eo[3:] = opk * np.pi / 180   # degree to radian
                 R = Rot3D(eo)
 

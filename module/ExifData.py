@@ -1,3 +1,4 @@
+import os
 import cv2
 import numpy as np
 import pyexiv2
@@ -41,46 +42,82 @@ def rotate(image, angle):
     rotated_mat = cv2.warpAffine(image, rotation_mat, (bound_w, bound_h))
     return rotated_mat
 
-def get_metadata(input_file):
+def get_metadata(input_file, camera_conf):
+    filename = os.path.splitext(input_file)[0]
+
+    if os.path.exists(filename + '.txt'):
+        array = []
+        with open(filename + '.txt', "r") as file:
+            for line in file:
+                parts = line.strip().split()
+                filename, *values = parts
+                values = [float(v) if '.' in v else int(v) for v in values]
+                array.append([filename] + values)
+            array = array[0]
     img = pyexiv2.Image(input_file)
 
     exif = img.read_exif()
     xmp = img.read_xmp()
 
-    focal_length = convert_string_to_float(exif['Exif.Photo.FocalLength']) / 1000    # unit: m
-    orientation = int(exif['Exif.Image.Orientation'])
-    maker = exif["Exif.Image.Make"]
+    try:
+        focal_length = convert_string_to_float(exif['Exif.Photo.FocalLength']) / 1000    # unit: m
+        orientation = int(exif['Exif.Image.Orientation'])
+        maker = exif["Exif.Image.Make"]
 
-    longitude = convert_dms_to_deg(exif["Exif.GPSInfo.GPSLongitude"])
-    latitude = convert_dms_to_deg(exif["Exif.GPSInfo.GPSLatitude"])
+        longitude = convert_dms_to_deg(exif["Exif.GPSInfo.GPSLongitude"])
+        latitude = convert_dms_to_deg(exif["Exif.GPSInfo.GPSLatitude"])
 
-    lon_ref = exif['Exif.GPSInfo.GPSLongitudeRef']
-    lat_ref = exif['Exif.GPSInfo.GPSLatitudeRef']
+        lon_ref = exif['Exif.GPSInfo.GPSLongitudeRef']
+        lat_ref = exif['Exif.GPSInfo.GPSLatitudeRef']
 
-    if lon_ref == "W":
-        longitude = -longitude
-    if lat_ref == "S":
-        latitude = -latitude
+        if lon_ref == "W":
+            longitude = -longitude
+        if lat_ref == "S":
+            latitude = -latitude
 
-    if exif["Exif.Image.Make"] == "DJI":
-        altitude = float(xmp['Xmp.drone-dji.RelativeAltitude'])
-        roll = float(xmp['Xmp.drone-dji.GimbalRollDegree'])
-        pitch = float(xmp['Xmp.drone-dji.GimbalPitchDegree'])
-        yaw = float(xmp['Xmp.drone-dji.GimbalYawDegree'])
-    elif exif["Exif.Image.Make"] == "samsung":
-        altitude = convert_string_to_float(exif['Exif.GPSInfo.GPSAltitude'])
-        roll = float(xmp['Xmp.DLS.Roll']) * 180 / np.pi
-        pitch = float(xmp['Xmp.DLS.Pitch']) * 180 / np.pi
-        yaw = float(xmp['Xmp.DLS.Yaw']) * 180 / np.pi
-    else:
-        altitude = 0
-        roll = 0
-        pitch = 0
-        yaw = 0
+        if exif["Exif.Image.Make"] == "DJI":
+            altitude = float(xmp['Xmp.drone-dji.RelativeAltitude'])
+            roll = float(xmp['Xmp.drone-dji.GimbalRollDegree'])
+            pitch = float(xmp['Xmp.drone-dji.GimbalPitchDegree'])
+            yaw = float(xmp['Xmp.drone-dji.GimbalYawDegree'])
+        elif exif["Exif.Image.Make"] == "samsung":
+            altitude = convert_string_to_float(exif['Exif.GPSInfo.GPSAltitude'])
+            roll = float(xmp['Xmp.DLS.Roll']) * 180 / np.pi
+            pitch = float(xmp['Xmp.DLS.Pitch']) * 180 / np.pi
+            yaw = float(xmp['Xmp.DLS.Yaw']) * 180 / np.pi
+        else:
+            altitude = 0
+            roll = 0
+            pitch = 0
+            yaw = 0
 
-    eo = np.array([longitude, latitude, altitude, roll, pitch, yaw])
+        eo = np.array(array[1:], dtype=float)
+        omega = eo[3]
+        phi = eo[4]
+        kappa = eo[5]
 
-    return focal_length, orientation, eo, maker
+        opk = np.array([omega, phi, kappa])
+
+        eo = np.array([longitude, latitude, altitude, roll, pitch, yaw])
+
+        return focal_length, orientation, eo, maker, opk
+    except Exception:
+        focal_length = camera_conf['focalLength'] / 1000   # unit: m
+        maker = camera_conf['maker']
+        orientation = 0
+        eo = np.array(array[1:], dtype=float)
+        eo[3] = eo[3] * 180 / np.pi
+        eo[4] = eo[4] * 180 / np.pi
+        eo[5] = eo[5] * 180 / np.pi
+
+        omega = eo[3]
+        phi = eo[4]
+        kappa = eo[5]
+
+        opk = np.array([omega, phi, kappa])
+
+
+        return focal_length, orientation, eo, maker, opk
 
 def convert_dms_to_deg(dms):
     dms_split = dms.split(" ")
